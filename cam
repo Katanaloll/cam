@@ -1,0 +1,91 @@
+-- Get Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+-- Local Player, Camera, and Mouse
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+-- Variables
+local isLocked = false -- Toggle state
+local connection -- Stores the tracking connection
+local targetPart -- Current target's HumanoidRootPart
+local smoothingFactor = 0.1 -- Smooth transition factor
+local ping = tonumber(game:GetService("Stats"):FindFirstChild("PerformanceStats").Ping:GetValue()) / 1000 -- Convert ping to seconds
+
+-- Function to find the closest player's HumanoidRootPart to the mouse position
+local function getClosestHumanoidRootPartToMouse()
+    local closestPart = nil
+    local closestDistance = math.huge
+    local mousePosition = Vector2.new(mouse.X, mouse.Y)
+
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local humanoidRootPart = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if humanoidRootPart then
+                local screenPosition = camera:WorldToScreenPoint(humanoidRootPart.Position)
+                local screenPosition2D = Vector2.new(screenPosition.X, screenPosition.Y)
+                local distance = (mousePosition - screenPosition2D).Magnitude
+                if distance < closestDistance then
+                    closestDistance = distance
+                    closestPart = humanoidRootPart
+                end
+            end
+        end
+    end
+
+    return closestPart
+end
+
+-- Function to calculate predicted position based on target movement and ping
+local function getPredictedPosition(targetPart)
+    if targetPart then
+        local velocity = targetPart.Velocity -- Get the target's velocity
+        local predictedPosition = targetPart.Position + (velocity * ping) -- Predict position based on ping
+        return predictedPosition
+    end
+    return targetPart.Position
+end
+
+-- Function to start tracking the selected target with smooth camera transition and prediction
+local function startTracking()
+    connection = RunService.RenderStepped:Connect(function()
+        if isLocked and targetPart then
+            local currentCFrame = camera.CFrame
+            local predictedPosition = getPredictedPosition(targetPart)
+            local targetCFrame = CFrame.new(camera.CFrame.Position, predictedPosition)
+            -- Smoothly transition to the target position using Lerp
+            camera.CFrame = currentCFrame:Lerp(targetCFrame, smoothingFactor)
+        end
+    end)
+end
+
+-- Function to stop tracking
+local function stopTracking()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+end
+
+-- Keybind to toggle the lock-on functionality
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.C then
+        if isLocked then
+            isLocked = false
+            targetPart = nil -- Reset target
+            stopTracking()
+        else
+            isLocked = true
+            targetPart = getClosestHumanoidRootPartToMouse()
+            if targetPart then
+                startTracking()
+            else
+                warn("No valid target found!")
+            end
+        end
+    end
+end)
