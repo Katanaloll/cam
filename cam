@@ -1,64 +1,92 @@
--- Katana's Cam with Pop-Up Message and Enjoy Button
-
--- Services
+-- Get Services
 local Players = game:GetService("Players")
-local Player = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 
--- Create ScreenGUI
-local ScreenGUI = Instance.new("ScreenGui")
-ScreenGUI.Parent = Player:WaitForChild("PlayerGui")
+-- Local Player, Camera, and Mouse
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
 
--- Pop-Up Frame
-local PopUpFrame = Instance.new("Frame")
-PopUpFrame.Size = UDim2.new(0, 300, 0, 150)
-PopUpFrame.Position = UDim2.new(0.5, -150, 0.5, -75)
-PopUpFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-PopUpFrame.BackgroundTransparency = 0.2
-PopUpFrame.Parent = ScreenGUI
+-- Variables
+local isLocked = false -- Toggle state
+local connection -- Stores the tracking connection
+local targetPart -- Current target's HumanoidRootPart
+local smoothingFactor = 0.1 -- Smooth transition factor
+local ping = tonumber(game:GetService("Stats"):FindFirstChild("PerformanceStats").Ping:GetValue()) / 1000 -- Convert ping to seconds
 
--- Pop-Up Label
-local PopUpLabel = Instance.new("TextLabel")
-PopUpLabel.Size = UDim2.new(1, 0, 0.6, 0)
-PopUpLabel.Position = UDim2.new(0, 0, 0, 0)
-PopUpLabel.BackgroundTransparency = 1
-PopUpLabel.Text = "Loading Katana's Cam..."
-PopUpLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-PopUpLabel.TextSize = 20
-PopUpLabel.Font = Enum.Font.GothamBold
-PopUpLabel.Parent = PopUpFrame
+-- Function to find the closest player's HumanoidRootPart to the mouse position
+local function getClosestHumanoidRootPartToMouse()
+    local closestPart = nil
+    local closestDistance = math.huge
+    local mousePosition = Vector2.new(mouse.X, mouse.Y)
 
--- Enjoy Button
-local EnjoyButton = Instance.new("TextButton")
-EnjoyButton.Size = UDim2.new(0.8, 0, 0.2, 0)
-EnjoyButton.Position = UDim2.new(0.1, 0, 0.7, 0)
-EnjoyButton.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
-EnjoyButton.Text = "Enjoy!"
-EnjoyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-EnjoyButton.TextSize = 18
-EnjoyButton.Font = Enum.Font.Gotham
-EnjoyButton.Visible = false
-EnjoyButton.Parent = PopUpFrame
+    for _, otherPlayer in pairs(Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local humanoidRootPart = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if humanoidRootPart then
+                local screenPosition = camera:WorldToScreenPoint(humanoidRootPart.Position)
+                local screenPosition2D = Vector2.new(screenPosition.X, screenPosition.Y)
+                local distance = (mousePosition - screenPosition2D).Magnitude
+                if distance < closestDistance then
+                    closestDistance = distance
+                    closestPart = humanoidRootPart
+                end
+            end
+        end
+    end
 
--- Load the Script with Debug Message
-print("Attempting to fetch the script from the URL...") -- Debug message
-local success, errorMessage = pcall(function()
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/Katanaloll/cam/refs/heads/main/cam"))()
-end)
+    return closestPart
+end
 
-if success then
-    print("Script loaded successfully!")
-    PopUpLabel.Text = "Finished Loading!"
-    EnjoyButton.Visible = true -- Show the Enjoy button
-    EnjoyButton.MouseButton1Click:Connect(function()
-        PopUpFrame:Destroy() -- Remove the pop-up when the button is clicked
-    end)
-else
-    print("Failed to load the script. Error: " .. errorMessage)
-    PopUpLabel.Text = "Failed to Load Script"
-    EnjoyButton.Text = "Close"
-    EnjoyButton.Visible = true -- Show the Enjoy button in case of error
-    EnjoyButton.MouseButton1Click:Connect(function()
-        PopUpFrame:Destroy() -- Remove the pop-up when the button is clicked
+-- Function to calculate predicted position based on target movement and ping
+local function getPredictedPosition(targetPart)
+    if targetPart then
+        local velocity = targetPart.Velocity -- Get the target's velocity
+        local predictedPosition = targetPart.Position + (velocity * ping) -- Predict position based on ping
+        return predictedPosition
+    end
+    return targetPart.Position
+end
+
+-- Function to start tracking the selected target with smooth camera transition and prediction
+local function startTracking()
+    connection = RunService.RenderStepped:Connect(function()
+        if isLocked and targetPart then
+            local currentCFrame = camera.CFrame
+            local predictedPosition = getPredictedPosition(targetPart)
+            local targetCFrame = CFrame.new(camera.CFrame.Position, predictedPosition)
+            -- Smoothly transition to the target position using Lerp
+            camera.CFrame = currentCFrame:Lerp(targetCFrame, smoothingFactor)
+        end
     end)
 end
+
+-- Function to stop tracking
+local function stopTracking()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+end
+
+-- Keybind to toggle the lock-on functionality
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.C then
+        if isLocked then
+            isLocked = false
+            targetPart = nil -- Reset target
+            stopTracking()
+        else
+            isLocked = true
+            targetPart = getClosestHumanoidRootPartToMouse()
+            if targetPart then
+                startTracking()
+            else
+                warn("No valid target found!")
+            end
+        end
+    end
+end)
 
